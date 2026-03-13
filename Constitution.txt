@@ -1,0 +1,81 @@
+This is the "Constitution" of our OS. By codifying these now, we ensure that as the project grows, it doesn't lose its soul. These rules are designed to prevent the "entropy of bloat" that killed Android's performance.
+📜 The "No-Compromises" OS Rule Book
+I. The Core Philosophy
+
+    Performance Over Convenience: We never choose an easier development path if it costs CPU cycles or adds latency.
+
+    Zero-Virtual Tax: No Virtual Machines (JVM/ART). No Garbage Collection. Execution is direct-to-metal.
+
+    The 2ms Latency Goal: Every system decision must prioritize the path from "User Touch" to "Pixel Change."
+
+    Semantic Re-implementation: We don't port Java code; we extract the intent and rebuild it as native Zig primitives.
+
+II. Language & Toolchain (The Zig Mandate)
+
+    Frozen Toolchain: We use a specific, pinned version of the Zig compiler to ensure build reproducibility and stability during development.
+
+    Explicit Allocation: Hidden heap allocations are strictly forbidden. Every function requiring memory must accept an Allocator as an argument.
+
+    Comptime Optimization: We must leverage Zig’s comptime to resolve logic and generate hardware-specific optimizations at compile-time rather than runtime.
+
+    No LibC Dependency: Where possible, we communicate directly with the Kernel via syscalls to keep the binary footprint "Jobs-ian" lean.
+
+III. Architectural Standards (The "Building Blocks")
+
+    Data-Oriented Design (DoD): We favor flat arrays and cache-locality over "Object-Oriented" trees. Data is stored in contiguous memory to maximize L1/L2 cache hits.
+
+    Composition Over Inheritance: We do not use deep class hierarchies. We snap together small, atomic "Primitives" to create complex behavior.
+
+    Atomic Primitives: Functions must do one thing with maximum optimization. A drawRect function is a pure mathematical transformation, not a "Widget manager."
+
+    The Escape Hatch: No abstraction should ever be a "black box." Developers must always have the ability to drop down to the lower-level primitives used to build the abstraction.
+
+IV. Memory Management (The Anti-GC)
+
+    Deterministic Lifecycles: Memory must be freed the microsecond it is no longer needed using RAII patterns or explicit Defer statements.
+
+    Arena Dominance: UI and short-lived tasks must use ArenaAllocators to allow for O(1) mass-deallocation.
+
+    Zero-Copy Communication: Inter-process communication (IPC) must use Shared Memory (shm) segments. We pass pointers, not data copies.
+
+V. API & Naming Conventions (The Predictability Rule)
+
+    Naming Pattern: [Subsystem]_[Component]_[Action].
+
+        Example: Gfx_Buffer_Upload() or In_Touch_GetCoords().
+
+    Predictable Complexity: All API functions must have a documented time complexity. No O(n) operation should ever be disguised as an O(1) property access.
+
+    The "Visual Studio" Standard: All headers must be designed for instant parsing and perfect autocomplete support.
+
+VI. Stability & Future Proofing
+
+    Stable Binary Interface (SBI): We use versioned V-Tables and immutable function offsets. Upgrading the OS should never break an existing app's binary.
+
+    Fixed-Base Logic: We freeze a specific Android API level (e.g., API 31) as our "Soul." We do not chase Google’s yearly "feature bloat" if it compromises the architecture.
+
+    Transparent Primitives: Any "Library" we build must be a thin, optional layer over the core primitives.
+
+VII. Developer Experience (DX)
+
+    The 0.5s Build Rule: The toolchain must be optimized so that a standard "Pro Track" app compiles and deploys in under half a second.
+
+    Cohesive Predictability: A developer should be able to guess the implementation of a function they haven’t used yet based on the patterns of the functions they have.
+    
+VIII. No Proprietary Blobs in the Critical Path. 
+    
+    If a hardware feature requires a "closed" driver that breaks our memory model, we write a "Sandboxed Wrapper" for it. It will never touch our core memory.
+
+IX. Syscall Purity. 
+    
+    Apps do not talk to the kernel. They talk to the Zig OS-Gateway. This prevents "dirty" apps from slowing down the system with inefficient syscalls.
+
+X. Power is a Command, Not a Suggestion. 
+    
+    We control the CPU frequencies directly via the /sys/devices/system/cpu interface based on user intent (e.g., if the user's finger is touching the screen, we ramp up the clock before the frame starts).
+    
+XI: Everything is a Vector. 
+    
+    In our OS, there are no "PNG icons" for the UI. Everything—from the clock numbers to the app icons—is a Mathematical Path (Bezier Curves) rendered in real-time by a Vulkan fragment shader.
+
+This is our Constitution. Every line of Zig we write from this point forward must be measured against these rules. If a piece of code violates a rule, it is deleted—no exceptions.
