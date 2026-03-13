@@ -11,6 +11,17 @@ const DRM_IOCTL_MODE_CREATE_DUMB = 0xC02064B2;
 const DRM_IOCTL_MODE_ADDFB = 0xC01C64AE;
 const DRM_IOCTL_MODE_MAP_DUMB = 0xC01064B3;
 const DRM_IOCTL_MODE_SETCRTC = 0xC06864A2;
+const DRM_IOCTL_MODE_ATOMIC = 0xC03864BC;
+const DRM_IOCTL_MODE_OBJ_GETPROPERTIES = 0xC02064B9;
+const DRM_CLIENT_CAP_ATOMIC = 3;
+const DRM_IOCTL_SET_CLIENT_CAP = 0x4010640D;
+const DRM_IOCTL_MODE_GETPROPERTY = 0xC04064AA;
+const DRM_MODE_OBJECT_CRTC = 0xCCCCCCCC;
+const DRM_MODE_OBJECT_CONNECTOR = 0xC0C0C0C0;
+const DRM_MODE_OBJECT_PLANE = 0xEEEEEEEE; // This is correct, but let's be careful
+const DRM_IOCTL_VERSION = 0xC0406400;
+const DRM_IOCTL_MODE_GETPLANERESOURCES = 0xC01064B6;
+const DRM_IOCTL_MODE_GETPLANE = 0xC02064B7;
 
 // EXACT KERNEL STRUCTS
 
@@ -112,93 +123,262 @@ const drm_mode_crtc = extern struct {
     mode: drm_mode_modeinfo = std.mem.zeroInit(drm_mode_modeinfo, .{}),
 };
 
+const drm_mode_obj_get_properties = extern struct {
+    props_ptr: u64,
+    prop_values_ptr: u64,
+    count_props: u32,
+    obj_id: u32,
+    obj_type: u32,
+};
+
+const drm_mode_atomic = extern struct {
+    flags: u32,
+    count_objs: u32,
+    objs_ptr: u64,
+    count_props_ptr: u64,
+    props_ptr: u64,
+    prop_values_ptr: u64,
+    reserved: u64 = 0,
+};
+
+const drm_mode_get_property = extern struct {
+    values_ptr: u64 = 0,
+    enum_blob_ptr: u64 = 0,
+    prop_id: u32,
+    flags: u32 = 0,
+    name: [32]u8 = [_]u8{0} ** 32,
+    count_values: u32 = 0,
+    count_enum_blobs: u32 = 0,
+};
+
+const drm_version = extern struct {
+    version_major: i32 = 0,
+    version_minor: i32 = 0,
+    version_patchlevel: i32 = 0,
+    name_len: usize = 0,
+    name: u64 = 0,
+    date_len: usize = 0,
+    date: u64 = 0,
+    desc_len: usize = 0,
+    desc: u64 = 0,
+};
+
+const drm_mode_get_plane_res = extern struct {
+    plane_id_ptr: u64,
+    count_planes: u32,
+};
+
 pub fn main() void {
     _ = os.mount("devtmpfs", "/dev", "devtmpfs", 0, 0);
     _ = os.mkdirat(os.AT.FDCWD, "/sys", 0o755);
     _ = os.mount("sysfs", "/sys", "sysfs", 0, 0);
 
-    screen_setup() catch |err| {
-        std.debug.print("Screen Setup Error: {}\n", .{err});
+    std.debug.print("--- DRM Modern Initiation ---\n", .{});
+
+    working() catch |err| {
+        std.debug.print("Critical Failure in Working: {}\n", .{err});
+        return;
+    };
+
+    scanner() catch |err| {
+        std.debug.print("Playground Experiment Failed: {}\n", .{err});
+    };
+
+    playground() catch |err| {
+        std.debug.print("Playground Experiment Failed: {}\n", .{err});
     };
 
     while (true) _ = os.nanosleep(&.{ .sec = 1, .nsec = 0 }, null);
 }
 
-pub fn screen_setup() !void {
+/// Verified and stable modern code.
+/// Verified and stable: Open, Master, Atomic Cap, and Basic IDs
+fn working() !void {
     const fd = try posix.openat(posix.AT.FDCWD, "/dev/dri/card0", .{ .ACCMODE = .RDWR }, 0);
     defer _ = os.close(fd);
+
     _ = posix.system.ioctl(fd, DRM_IOCTL_SET_MASTER, 0);
+
+    // Set Atomic and Universal Caps (Drivers ignore these if they don't support them)
+    const caps = [_]struct { id: u64, val: u64 }{
+        .{ .id = 3, .val = 1 }, // ATOMIC
+        .{ .id = 2, .val = 1 }, // UNIVERSAL_PLANES
+    };
+    for (caps) |c| _ = posix.system.ioctl(fd, 0x4010640D, @intFromPtr(&c));
+
+    const mem = try posix.mmap(null, 4096, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0);
+    defer posix.munmap(mem);
+
+    var res = std.mem.zeroInit(drm_mode_card_res, .{
+        .connector_id_ptr = @intFromPtr(mem.ptr),
+        .count_connectors = 1,
+        .crtc_id_ptr = @intFromPtr(mem.ptr + 1024),
+        .count_crtcs = 1,
+    });
+
+    if (posix.system.ioctl(fd, DRM_IOCTL_MODE_GETRESOURCES, @intFromPtr(&res)) != 0) return error.GetResFail;
+
+    const conn_id = @as([*]u32, @ptrCast(@alignCast(mem.ptr)))[0];
+    const crtc_id = @as([*]u32, @ptrCast(@alignCast(mem.ptr + 1024)))[0];
+
+    std.debug.print("WORKING: Device Ready. Connector: {d}, CRTC: {d}\n", .{ conn_id, crtc_id });
+}
+
+/// The Laboratory.
+fn playground() !void {
+    const fd = try posix.openat(posix.AT.FDCWD, "/dev/dri/card0", .{ .ACCMODE = .RDWR }, 0);
+    defer _ = os.close(fd);
+
+    _ = posix.system.ioctl(fd, DRM_IOCTL_SET_MASTER, 0);
+
+    const caps = [_]struct { id: u64, val: u64 }{
+        .{ .id = 3, .val = 1 }, // ATOMIC
+        .{ .id = 2, .val = 1 }, // UNIVERSAL_PLANES
+    };
+    for (caps) |c| _ = posix.system.ioctl(fd, 0x4010640D, @intFromPtr(&c));
+
+    const mem = try posix.mmap(null, 32768, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0);
+    defer posix.munmap(mem);
+
+    // --- 1. MODE DISCOVERY (CRTC Stealing) ---
+    var target_mode: drm_mode_modeinfo = std.mem.zeroInit(drm_mode_modeinfo, .{});
+    var crtc_probe = std.mem.zeroInit(drm_mode_crtc, .{ .crtc_id = 37 });
+
+    if (posix.system.ioctl(fd, 0xC06864A1, @intFromPtr(&crtc_probe)) == 0 and crtc_probe.mode_valid != 0) {
+        std.debug.print("PLAYGROUND: Stole Mode from CRTC! {d}x{d}\n", .{ crtc_probe.mode.hdisplay, crtc_probe.mode.vdisplay });
+        target_mode = crtc_probe.mode;
+    } else {
+        std.debug.print("PLAYGROUND: CRTC mode invalid. Using Manual Fallback.\n", .{});
+        target_mode = std.mem.zeroInit(drm_mode_modeinfo, .{
+            .clock = 65000,
+            .hdisplay = 1024,
+            .hsync_start = 1048,
+            .hsync_end = 1184,
+            .htotal = 1344,
+            .vdisplay = 768,
+            .vsync_start = 771,
+            .vsync_end = 777,
+            .vtotal = 806,
+            .vrefresh = 60,
+            .type = (1 << 3) | (1 << 6), // USERDEF | PREFERRED
+            .flags = (1 << 0), // PHSYNC
+        });
+        @memcpy(target_mode.name[0..8], "1024x768");
+    }
+
+    // --- 2. DUMB BUFFER ---
+    var creq = std.mem.zeroInit(drm_mode_create_dumb, .{
+        .width = target_mode.hdisplay,
+        .height = target_mode.vdisplay,
+        .bpp = 32,
+    });
+    _ = posix.system.ioctl(fd, 0xC02064B2, @intFromPtr(&creq)); // CREATE_DUMB
+
+    // --- 3. FRAMEBUFFER ---
+    var fb_req = std.mem.zeroInit(drm_mode_fb_cmd, .{
+        .width = creq.width,
+        .height = creq.height,
+        .pitch = creq.pitch,
+        .bpp = 32,
+        .depth = 24,
+        .handle = creq.handle,
+    });
+    _ = posix.system.ioctl(fd, 0xC01C64AE, @intFromPtr(&fb_req)); // ADDFB
+
+    // --- 4. MAP & PAINT ---
+    var mreq = std.mem.zeroInit(drm_mode_map_dumb, .{ .handle = creq.handle });
+    _ = posix.system.ioctl(fd, 0xC01064B3, @intFromPtr(&mreq)); // MAP_DUMB
+
+    const draw_mem = try posix.mmap(null, creq.size, .{ .READ = true, .WRITE = true }, .{ .TYPE = .SHARED }, fd, mreq.offset);
+    defer posix.munmap(draw_mem);
+
+    const pixels = std.mem.bytesAsSlice(u32, draw_mem);
+    @memset(pixels, 0xFFFF00FF); // Purple!
+
+    // --- 5. THE MOMENT OF TRUTH: SETCRTC ---
+    var set_crtc = std.mem.zeroInit(drm_mode_crtc, .{
+        .x = 0,
+        .y = 0,
+        .crtc_id = 37,
+        .fb_id = fb_req.fb_id,
+        .count_connectors = 1,
+        .set_connectors_ptr = @intFromPtr(&[1]u32{38}),
+        .mode_valid = 1,
+        .mode = target_mode,
+    });
+
+    const rc = posix.system.ioctl(fd, 0xC06864A2, @intFromPtr(&set_crtc)); // SETCRTC
+
+    if (rc == 0) {
+        std.debug.print("PLAYGROUND: SUCCESS! Purple screen active.\n", .{});
+        const ts = std.os.linux.timespec{ .sec = 10, .nsec = 0 };
+        _ = std.os.linux.nanosleep(&ts, null);
+    } else {
+        const err = @as(i32, @bitCast(@as(u32, @truncate(rc))));
+        std.debug.print("PLAYGROUND: SETCRTC failed with {d}\n", .{err});
+    }
+}
+fn scanner() !void {
+    const fd = try posix.openat(posix.AT.FDCWD, "/dev/dri/card0", .{ .ACCMODE = .RDWR }, 0);
+    defer _ = os.close(fd);
+
+    // Essential: You MUST have Atomic enabled to see Atomic properties!
+    const cap = struct { id: u64, val: u64 }{ .id = 3, .val = 1 };
+    _ = posix.system.ioctl(fd, 0x4010640D, @intFromPtr(&cap));
+
     const mem = try posix.mmap(null, 65536, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0);
     defer posix.munmap(mem);
-    var res = std.mem.zeroInit(drm_mode_card_res, .{});
-    _ = posix.system.ioctl(fd, DRM_IOCTL_MODE_GETRESOURCES, @intFromPtr(&res));
-    res.fb_id_ptr = @intFromPtr(mem.ptr);
-    res.crtc_id_ptr = @intFromPtr(mem.ptr + 4096);
-    res.connector_id_ptr = @intFromPtr(mem.ptr + 8192);
-    res.encoder_id_ptr = @intFromPtr(mem.ptr + 12288);
-    if (posix.system.ioctl(fd, DRM_IOCTL_MODE_GETRESOURCES, @intFromPtr(&res)) != 0) return error.ResFail;
-    const conn_ids: [*]u32 = @ptrCast(@alignCast(mem.ptr + 8192));
-    const crtc_ids: [*]u32 = @ptrCast(@alignCast(mem.ptr + 4096));
-    const my_conn_id = conn_ids[0];
-    var conn = std.mem.zeroInit(drm_mode_get_connector, .{ .connector_id = my_conn_id });
-    _ = posix.system.ioctl(fd, DRM_IOCTL_MODE_GETCONNECTOR, @intFromPtr(&conn));
-    conn.modes_ptr = @intFromPtr(mem.ptr + 16384);
-    conn.encoders_ptr = @intFromPtr(mem.ptr + 24576);
-    conn.props_ptr = @intFromPtr(mem.ptr + 32768);
-    conn.prop_values_ptr = @intFromPtr(mem.ptr + 40960);
-    if (posix.system.ioctl(fd, DRM_IOCTL_MODE_GETCONNECTOR, @intFromPtr(&conn)) != 0) return error.ConnFail;
-    const modes: [*]drm_mode_modeinfo = @ptrCast(@alignCast(mem.ptr + 16384));
-    const my_mode = modes[0];
-    var encoder_id = conn.encoder_id;
-    if (encoder_id == 0 and conn.count_encoders > 0) {
-        const encs: [*]u32 = @ptrCast(@alignCast(mem.ptr + 24576));
-        encoder_id = encs[0];
-    }
-    var my_crtc_id: u32 = 0;
-    if (encoder_id != 0) {
-        var enc_info = std.mem.zeroInit(drm_mode_get_encoder, .{ .encoder_id = encoder_id });
-        _ = posix.system.ioctl(fd, DRM_IOCTL_MODE_GETENCODER, @intFromPtr(&enc_info));
-        my_crtc_id = enc_info.crtc_id;
-    }
-    if (my_crtc_id == 0) my_crtc_id = crtc_ids[0];
-    var creq = std.mem.zeroInit(drm_mode_create_dumb, .{ .width = my_mode.hdisplay, .height = my_mode.vdisplay, .bpp = 32 });
-    _ = posix.system.ioctl(fd, DRM_IOCTL_MODE_CREATE_DUMB, @intFromPtr(&creq));
-    var fb_req = std.mem.zeroInit(drm_mode_fb_cmd, .{ .width = creq.width, .height = creq.height, .pitch = creq.pitch, .bpp = 32, .depth = 24, .handle = creq.handle });
-    if (posix.system.ioctl(fd, DRM_IOCTL_MODE_ADDFB, @intFromPtr(&fb_req)) != 0) return error.AddFbFail;
-    var mreq = std.mem.zeroInit(drm_mode_map_dumb, .{ .handle = creq.handle });
-    _ = posix.system.ioctl(fd, DRM_IOCTL_MODE_MAP_DUMB, @intFromPtr(&mreq));
-    const fb_ptr = try posix.mmap(null, creq.size, .{ .READ = true, .WRITE = true }, .{ .TYPE = .SHARED }, fd, mreq.offset);
-    const pixels: [*]u32 = @ptrCast(@alignCast(fb_ptr.ptr));
-    @memset(fb_ptr, 0);
-    for (0..creq.width * creq.height) |i| {
-        pixels[i] = 0xFF00FF00; // Green
-    }
-    const conn_ptr_loc = mem.ptr + 50000;
-    @as([*]u32, @ptrCast(@alignCast(conn_ptr_loc)))[0] = my_conn_id;
-    var set_crtc = std.mem.zeroInit(drm_mode_crtc, .{
-        .set_connectors_ptr = @intFromPtr(conn_ptr_loc),
-        .count_connectors = 1,
-        .crtc_id = my_crtc_id,
-        .fb_id = fb_req.fb_id,
-        .mode_valid = 1,
-        .mode = my_mode,
+
+    // We'll scan CRTC 37 specifically since we know it exists
+    const target_obj_id: u32 = 37;
+    const target_obj_type: u32 = 0xCCCCCCCC; // DRM_MODE_OBJECT_CRTC
+
+    var get_props = std.mem.zeroInit(drm_mode_obj_get_properties, .{
+        .obj_id = target_obj_id,
+        .obj_type = target_obj_type,
+        .props_ptr = @intFromPtr(mem.ptr),
+        .prop_values_ptr = @intFromPtr(mem.ptr + 2048),
+        .count_props = 32,
     });
-    if (posix.system.ioctl(fd, DRM_IOCTL_MODE_SETCRTC, @intFromPtr(&set_crtc)) != 0) return error.SetCrtcFailed;
-    const DRM_IOCTL_MODE_DIRTYFB = 0xC01864B1;
-    const drm_clip_rect = extern struct { x1: u16, y1: u16, x2: u16, y2: u16 };
-    const drm_mode_fb_dirty_vblank = extern struct {
-        fb_id: u32,
-        flags: u32 = 0,
-        color: u32 = 0,
-        n_rects: u32 = 0,
-        rects_ptr: u64 = 0,
-    };
-    const rect = drm_clip_rect{ .x1 = 0, .y1 = 0, .x2 = @intCast(my_mode.hdisplay), .y2 = @intCast(my_mode.vdisplay) };
-    var dirty = drm_mode_fb_dirty_vblank{
-        .fb_id = fb_req.fb_id,
-        .n_rects = 1,
-        .rects_ptr = @intFromPtr(&rect),
-    };
-    _ = posix.system.ioctl(fd, DRM_IOCTL_MODE_DIRTYFB, @intFromPtr(&dirty));
-    std.debug.print("SUCCESS. DRM is online at {d}x{d}.\n", .{ my_mode.hdisplay, my_mode.vdisplay });
+
+    if (posix.system.ioctl(fd, 0xC02064B9, @intFromPtr(&get_props)) == 0) {
+        std.debug.print("\n--- Scanning CRTC {d} Properties ---\n", .{target_obj_id});
+
+        const prop_ids = @as([*]u32, @ptrCast(@alignCast(mem.ptr)));
+        const prop_values = @as([*]u64, @ptrCast(@alignCast(mem.ptr + 2048)));
+
+        for (0..get_props.count_props) |i| {
+            // Now we ask the kernel: "What is the NAME of Property ID X?"
+            var prop_info = std.mem.zeroInit(drm_mode_get_property, .{
+                .prop_id = prop_ids[i],
+            });
+
+            if (posix.system.ioctl(fd, 0xC04064AA, @intFromPtr(&prop_info)) == 0) {
+                const name = std.mem.sliceTo(&prop_info.name, 0);
+                std.debug.print("Property: {s: <15} | ID: {d: <3} | Value: {d}\n", .{ name, prop_ids[i], prop_values[i] });
+            }
+        }
+    }
+    // Add this to your scanner to find the Plane's "Secret" IDs
+    for (30..45) |id| {
+        var plane_props = std.mem.zeroInit(drm_mode_obj_get_properties, .{
+            .obj_id = @as(u32, @intCast(id)), // Tell Zig exactly what this needs to be
+            .obj_type = 0xEEEEEEEE,
+            .props_ptr = @intFromPtr(mem.ptr),
+            .prop_values_ptr = @intFromPtr(mem.ptr + 2048),
+            .count_props = 32,
+        });
+
+        if (posix.system.ioctl(fd, 0xC02064B9, @intFromPtr(&plane_props)) == 0) {
+            std.debug.print("\n--- Found Plane {d} Properties ---\n", .{id});
+            const p_ids = @as([*]u32, @ptrCast(@alignCast(mem.ptr)));
+            for (0..plane_props.count_props) |i| {
+                var p_info = std.mem.zeroInit(drm_mode_get_property, .{ .prop_id = p_ids[i] });
+                if (posix.system.ioctl(fd, 0xC04064AA, @intFromPtr(&p_info)) == 0) {
+                    std.debug.print("Plane Prop: {s: <15} | ID: {d}\n", .{ std.mem.sliceTo(&p_info.name, 0), p_ids[i] });
+                }
+            }
+            break; // Found our primary plane!
+        }
+    }
 }
