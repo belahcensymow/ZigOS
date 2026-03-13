@@ -1,0 +1,51 @@
+🏛️ The Master Architectural Plan
+Phase 1: The Atomic Foundation (Current Focus)
+
+Instead of "setting" the screen, we "commit" a state. This prevents flickering and allows for the seamless resolution changes needed for foldables.
+
+    Hardware Probing: Discover all Connectors, CRTCs, and Planes.
+
+    Property Registry: Create a lookup table for Atomic IDs (e.g., FB_ID, CRTC_ID, MODE_ID, ACTIVE).
+
+    Atomic Transactions: Implement a "Test-and-Commit" cycle where we batch hardware changes into a single kernel call.
+
+Phase 2: Memory & The "Zero-Copy" Bridge
+
+We move from "Dumb" to "Smart" memory. This is the bridge to Vulkan.
+
+    GBM (Generic Buffer Management): Initialize a GBM device to allocate buffers that the GPU actually understands (tiled, compressed, or specialized layouts).
+
+    DMA-BUF Integration: Use file descriptors to share memory handles. This allows a future Vulkan renderer to write to memory that the DRM display engine reads without the CPU moving a single byte.
+
+    Double/Triple Buffering: Implement a "Swapchain" to ensure we are never drawing on a buffer currently being scanned out to the monitor.
+
+Phase 3: The Virtualized UI Layer (The Developer API)
+
+This is where the "Android-style" simplicity meets low-level power.
+
+    The Surface Abstraction: Each app/window gets a Surface.
+
+        Low-Level: Exposes a raw pointer or DMA-BUF handle for direct pixel manipulation.
+
+        High-Level: A Zig library of "Widget" functions (Rect, Text, Image) that use the pointer internally.
+
+    Dirty Tracking: Apps mark regions as "dirty" so the compositor only updates the parts of the screen that changed, saving massive amounts of power and bandwidth.
+
+Phase 4: Scaling & Hotplugging (The "Foldable" Logic)
+
+The system must handle a changing physical world.
+
+    Udev Integration: Listen for kernel events when screens are plugged in or folded.
+
+    The Global State Machine: If a screen changes resolution, the Output object re-negotiates the Atomic Transaction, updates the Surface size, and notifies the App—all without a reboot.
+
+    VRR (Variable Refresh Rate): Adjust the "Commit" timing based on when the App finished drawing, rather than a fixed 60Hz timer.
+
+🛠️ Data Structure Blueprint
+
+This is the Zig layout we will build to prevent technical debt:
+Component	Responsibility
+Core	The "Master" node. Owns the /dev/dri/card0 file descriptor and GBM device.
+Output	A physical or virtual screen. Contains the CRTC and Connector state.
+Plane	A hardware layer. A screen might have a "Primary" plane (UI) and "Overlay" planes (Video).
+Buffer	The actual memory. Tracks FB_ID, Pitch, and the raw Pointer/DMA-BUF.

@@ -44,10 +44,10 @@ pub fn build(b: *std.Build) void {
         "-initrd",
         "zig-out/bin/initramfs.cpio",
         "-device",  "virtio-gpu-pci,edid=on", // edid=on tells the GPU to simulate a monitor's identity
-        "-display", "sdl,gl=on",
+        "-display", "sdl",
         "-vga",    "none", // Ensure it doesn't try to use a standard VGA card instead of virtio
         "-serial", "mon:stdio",
-        "-append", "console=null devtmpfs.mount=1",
+        "-append", "console=ttyAMA0 devtmpfs.mount=1",
     });
     qemu_cmd.step.dependOn(package_step);
     run_step.dependOn(&qemu_cmd.step);
