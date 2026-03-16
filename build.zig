@@ -15,8 +15,32 @@ pub fn build(b: *std.Build) void {
     const exe = b.addExecutable(.{
         .name = "init",
         .root_module = os_module,
+        .linkage = .static,
     });
-    exe.root_module.strip = true;
+
+    const libdrm = b.addModule("libdrm", .{ .root_source_file = b.path("libdrm.zig/libdrm.zig") });
+
+    exe.root_module.addImport("libdrm", libdrm);
+
+    // exe.root_module.strip = true;
+    // exe.root_module.link_libc = true;
+    // exe.root_module.addIncludePath(b.path("libdrm/"));
+    // exe.root_module.addIncludePath(b.path("libdrm/include/"));
+    // exe.root_module.addCSourceFiles(.{
+    //     .root = b.path("libdrm"),
+    //     .files = &.{
+    //         "xf86drm.c",
+    //         "xf86drmMode.c",
+    //         // Add other necessary .c files here
+    //     },
+    //     .flags = &.{"-std=gnu11"},
+    // });
+    // exe.root_module.addIncludePath(.{ .cwd_relative = "/usr/include/libdrm" });
+    // exe.root_module.addIncludePath(.{ .cwd_relative = "/usr/include/gnu/" });
+    // exe.root_module.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    // exe.root_module.addIncludePath(.{ .cwd_relative = "/usr/include/" });
+    // exe.root_module.linkSystemLibrary("libdrm", .{ .preferred_link_mode = .static });
+
     b.installArtifact(exe);
 
     const package_step = b.step("package", "Create the initramfs archive");
@@ -39,15 +63,24 @@ pub fn build(b: *std.Build) void {
         "cortex-a76",
         "-m",
         "2G",
+        "-object",
+        "memory-backend-memfd,id=mem1,size=2G,share=on",
+        "-machine",
+        "virt,memory-backend=mem1,secure=off",
         "-kernel",
         "kernel-source/arch/arm64/boot/Image",
         "-initrd",
         "zig-out/bin/initramfs.cpio",
-        "-device",  "virtio-gpu-pci,edid=on", // edid=on tells the GPU to simulate a monitor's identity
-        "-display", "sdl",
-        "-vga",    "none", // Ensure it doesn't try to use a standard VGA card instead of virtio
-        "-serial", "mon:stdio",
-        "-append", "console=ttyAMA0 devtmpfs.mount=1",
+        "-device",
+        "virtio-gpu-pci,edid=on,blob=on,xres=1280,yres=800",
+        "-display",
+        "gtk,gl=on",
+        "-vga",
+        "none",
+        "-serial",
+        "mon:stdio",
+        "-append",
+        "console=ttyAMA0,devtmpfs.mount=1,initcall_blacklist=virtio_gpu_init",
     });
     qemu_cmd.step.dependOn(package_step);
     run_step.dependOn(&qemu_cmd.step);
