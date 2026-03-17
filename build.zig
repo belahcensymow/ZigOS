@@ -4,23 +4,28 @@ pub fn build(b: *std.Build) void {
     const target = b.resolveTargetQuery(.{
         .cpu_arch = .aarch64,
         .os_tag = .linux,
-        .abi = .none,
+        .abi = .musl,
     });
+
     const optimize = b.standardOptimizeOption(.{});
+
     const os_module = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
+
     const exe = b.addExecutable(.{
         .name = "init",
         .root_module = os_module,
         .linkage = .static,
     });
 
-    const libdrm = b.addModule("libdrm", .{ .root_source_file = b.path("libdrm.zig/libdrm.zig") });
+    exe.linkLibC();
 
-    exe.root_module.addImport("libdrm", libdrm);
+    exe.root_module.addObjectFile(b.path("deps/lib/libdrm-2.4.131/libdrm.a"));
+    exe.root_module.addSystemIncludePath(.{ .cwd_relative = "/usr/include/libdrm" });
+    exe.root_module.addSystemIncludePath(.{ .cwd_relative = "/usr/include" });
 
     // exe.root_module.strip = true;
     // exe.root_module.link_libc = true;
